@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,14 +24,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f0f1a;color:#e0e0e
 .btn-step:hover{transform:translateY(-1px)}
 .panels{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;max-width:1600px;margin:0 auto}
 .panel{background:#1a1a2e;border-radius:12px;border:1px solid #2a2a4a;overflow:hidden;display:flex;flex-direction:column}
-.panel-header{padding:12px 16px;font-weight:700;font-size:1rem;display:flex;justify-content:space-between;align-items:center}
-.panel-header .result{font-size:.85rem;padding:4px 10px;border-radius:20px;font-weight:600}
+.panel-header{padding:12px 16px;font-weight:700;font-size:.95rem;display:flex;justify-content:space-between;align-items:center}
+.panel-header .result{font-size:.85rem;padding:4px 10px;border-radius:20px;font-weight:600;border:1px dashed #00e676}
+.panel-desc{padding:6px 16px 10px;font-size:.75rem;color:#777;border-bottom:1px solid #2a2a4a;line-height:1.4}
 .p1 .panel-header{background:linear-gradient(90deg,#0f3460,#16213e);border-bottom:2px solid #00d2ff}
-.p1 .result{background:rgba(0,210,255,.15);color:#00d2ff}
+.p1 .result{background:rgba(0,230,118,.15);color:#00e676}
 .p2 .panel-header{background:linear-gradient(90deg,#1a0f3e,#1e1640);border-bottom:2px solid #7b2ff7}
-.p2 .result{background:rgba(123,47,247,.15);color:#b388ff}
+.p2 .result{background:rgba(0,230,118,.15);color:#00e676}
 .p3 .panel-header{background:linear-gradient(90deg,#3e0f0f,#401616);border-bottom:2px solid #ff6b6b}
-.p3 .result{background:rgba(255,107,107,.15);color:#ff6b6b}
+.p3 .result{background:rgba(0,230,118,.15);color:#00e676}
 .canvas-wrap{flex:1;padding:12px;min-height:320px;position:relative}
 canvas{width:100%;height:100%;border-radius:8px;background:#12121e}
 .log{height:140px;overflow-y:auto;padding:10px 14px;font-family:'Fira Code',monospace;font-size:.75rem;line-height:1.6;background:#0a0a14;border-top:1px solid #2a2a4a;color:#888}
@@ -44,13 +46,13 @@ canvas{width:100%;height:100%;border-radius:8px;background:#12121e}
 <body>
 <div class="header">
   <h1>Container Water · Trapping Rain Water · Largest Rectangle</h1>
-  <p>Side-by-side algorithm visualization with step-by-step animation</p>
+  <p>Side-by-side algorithm visualization — notice the structural differences</p>
 </div>
 <div class="controls">
   <label>Heights:</label>
   <input type="text" id="inputArr" value="5,4,4,5">
   <button class="btn btn-run" onclick="runAll()">▶ Animate All</button>
-  <button class="btn btn-step" onclick="stepAll()">⏭ Step</button>
+  <button class="btn btn-step" id="stepAllBtn">⏭ Step All</button>
   <button class="btn btn-reset" onclick="resetAll()">↺ Reset</button>
   <label>Speed:</label>
   <input type="range" id="speed" min="50" max="800" value="400">
@@ -61,21 +63,24 @@ canvas{width:100%;height:100%;border-radius:8px;background:#12121e}
   <div class="legend-item"><span style="background:#ffd200"></span>Active Pointers</div>
   <div class="legend-item"><span style="background:#7b2ff7"></span>Stack Elements</div>
   <div class="legend-item"><span style="background:#ff6b6b"></span>Max Rectangle</div>
-  <div class="legend-item"><span style="background:#555"></span>Bars</div>
+  <div class="legend-item"><span style="background:#555"></span>Bars / Walls</div>
 </div>
 <div class="panels">
   <div class="panel p1">
     <div class="panel-header">Container With Most Water <span class="result" id="res1">Area: 0</span></div>
+    <div class="panel-desc">Thin walls with space between — water fills the gap. Find the biggest container. <button class="btn btn-step" style="padding:3px 10px;font-size:.75rem" onclick="stepOne('container')">⏭ Step</button></div>
     <div class="canvas-wrap"><canvas id="c1"></canvas></div>
     <div class="log" id="log1"></div>
   </div>
   <div class="panel p2">
     <div class="panel-header">Trapping Rain Water <span class="result" id="res2">Water: 0</span></div>
+    <div class="panel-desc">Buildings touching — no gaps. Water trapped on top of each building between taller ones. <button class="btn btn-step" style="padding:3px 10px;font-size:.75rem" onclick="stepOne('trapping')">⏭ Step</button></div>
     <div class="canvas-wrap"><canvas id="c2"></canvas></div>
     <div class="log" id="log2"></div>
   </div>
   <div class="panel p3">
     <div class="panel-header">Largest Rectangle in Histogram <span class="result" id="res3">Area: 0</span></div>
+    <div class="panel-desc">Bars touching — no gaps. Extend each bar left/right to find the largest rectangle. <button class="btn btn-step" style="padding:3px 10px;font-size:.75rem" onclick="stepOne('histogram')">⏭ Step</button></div>
     <div class="canvas-wrap"><canvas id="c3"></canvas></div>
     <div class="log" id="log3"></div>
   </div>
@@ -86,7 +91,7 @@ const $ = id => document.getElementById(id);
 const speedEl = $('speed');
 speedEl.oninput = () => $('speedLabel').textContent = speedEl.value + 'ms';
 
-let heights = [], animating = false, stepMode = false, stepResolve = null;
+let heights = [], animating = false, stepMode = false, stepResolvers = new Map();
 let abortCtrl = null;
 
 function parseInput() {
@@ -100,16 +105,22 @@ function delay(ms, signal) {
   });
 }
 
-function waitStep(signal) {
+function waitStep(signal, algoId) {
   if (!stepMode) return delay(+speedEl.value, signal);
   return new Promise((res, rej) => {
-    stepResolve = res;
-    if (signal) signal.addEventListener('abort', () => { stepResolve = null; rej('abort'); });
+    stepResolvers.set(algoId, res);
+    if (signal) signal.addEventListener('abort', () => { stepResolvers.delete(algoId); rej('abort'); });
   });
 }
 
-function stepAll() {
-  if (stepResolve) { const r = stepResolve; stepResolve = null; r(); }
+function doStep(algoId) {
+  if (algoId) {
+    const r = stepResolvers.get(algoId);
+    if (r) { stepResolvers.delete(algoId); r(); }
+  } else {
+    for (const [k, r] of stepResolvers) { r(); }
+    stepResolvers.clear();
+  }
 }
 
 function log(id, html) {
@@ -118,7 +129,6 @@ function log(id, html) {
   el.scrollTop = el.scrollHeight;
 }
 
-// ─── Drawing helpers ───
 function setupCanvas(canvas) {
   const r = canvas.parentElement.getBoundingClientRect();
   canvas.width = r.width * 2; canvas.height = r.height * 2;
@@ -127,17 +137,17 @@ function setupCanvas(canvas) {
   return { ctx, w: r.width, h: r.height };
 }
 
-function drawBars(ctx, w, h, arr, opts = {}) {
-  const { pointers = [], stackSet = new Set(), waterLevels = [], filledWater = [], maxRect = null, maxRectBars = new Set() } = opts;
+// ─── Container With Most Water: thin walls, space between ───
+function drawContainer(ctx, w, h, arr, opts = {}) {
+  const { pointers = [], waterLevel = null, bestWater = null } = opts;
   const maxH = Math.max(...arr, 1);
-  const pad = 30, bottom = h - 25, top = 15;
-  const usable = bottom - top;
-  const barW = Math.min(40, (w - pad * 2) / arr.length * 0.7);
+  const pad = 30, bottom = h - 25, top = 15, usable = bottom - top;
   const gap = (w - pad * 2) / arr.length;
+  const wallW = Math.max(4, gap * 0.15);
 
   ctx.clearRect(0, 0, w, h);
 
-  // Grid lines
+  // Grid
   ctx.strokeStyle = '#1e1e30'; ctx.lineWidth = 0.5;
   for (let i = 0; i <= 4; i++) {
     const y = bottom - (usable * i / 4);
@@ -146,44 +156,120 @@ function drawBars(ctx, w, h, arr, opts = {}) {
     ctx.fillText((maxH * i / 4).toFixed(0), 4, y + 3);
   }
 
-  // Water fill
+  // Best water area (faded)
+  if (bestWater) {
+    const { l, r: ri, level } = bestWater;
+    const x1 = pad + l * gap + gap / 2;
+    const x2 = pad + ri * gap + gap / 2;
+    const wy = bottom - (level / maxH) * usable;
+    ctx.fillStyle = 'rgba(0,210,255,0.06)';
+    ctx.fillRect(x1, wy, x2 - x1, bottom - wy);
+  }
+
+  // Current water area
+  if (waterLevel) {
+    const { l, r: ri, level } = waterLevel;
+    const x1 = pad + l * gap + gap / 2;
+    const x2 = pad + ri * gap + gap / 2;
+    const wy = bottom - (level / maxH) * usable;
+    ctx.fillStyle = 'rgba(0,210,255,0.2)';
+    ctx.fillRect(x1, wy, x2 - x1, bottom - wy);
+    // Dashed lines filling inside the water area
+    ctx.strokeStyle = 'rgba(0,210,255,0.4)'; ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    for (let dy = wy + 6; dy < bottom; dy += 8) {
+      ctx.beginPath(); ctx.moveTo(x1 + 2, dy); ctx.lineTo(x2 - 2, dy); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // Walls (thin lines with space between)
+  arr.forEach((v, i) => {
+    const cx = pad + i * gap + gap / 2;
+    const x = cx - wallW / 2;
+    const barH = (v / maxH) * usable;
+    const isPointer = pointers.includes(i);
+
+    let color = '#3a3a5c';
+    if (isPointer) color = '#ffd200';
+
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(x + 1, bottom - barH + 1, wallW, barH);
+
+    const grad = ctx.createLinearGradient(x, bottom - barH, x, bottom);
+    grad.addColorStop(0, color); grad.addColorStop(1, '#222');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, bottom - barH, wallW, barH);
+
+    ctx.strokeStyle = isPointer ? '#fff' : 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = isPointer ? 1.5 : 0.5;
+    ctx.strokeRect(x, bottom - barH, wallW, barH);
+
+    ctx.fillStyle = '#666'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(i, cx, bottom + 12);
+    ctx.fillStyle = isPointer ? '#ffd200' : '#aaa'; ctx.font = '10px monospace';
+    ctx.fillText(v, cx, bottom - barH - 5);
+
+    if (isPointer) {
+      const pi = pointers.indexOf(i);
+      ctx.fillStyle = '#ffd200'; ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(pi === 0 ? 'L' : 'R', cx, bottom + 23);
+    }
+  });
+  ctx.textAlign = 'start';
+}
+
+// ─── Trapping Rain Water & Histogram: bars touching, no gaps ───
+function drawTouching(ctx, w, h, arr, opts = {}) {
+  const { pointers = [], stackSet = new Set(), filledWater = [], maxRect = null, maxRectBars = new Set() } = opts;
+  const maxH = Math.max(...arr, 1);
+  const pad = 30, bottom = h - 25, top = 15, usable = bottom - top;
+  const barW = (w - pad * 2) / arr.length; // no gap — bars fill entire width
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = '#1e1e30'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = bottom - (usable * i / 4);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - 10, y); ctx.stroke();
+    ctx.fillStyle = '#444'; ctx.font = '9px monospace';
+    ctx.fillText((maxH * i / 4).toFixed(0), 4, y + 3);
+  }
+
+  // Water fill (trapping)
   filledWater.forEach(({ i, level }) => {
-    const x = pad + i * gap + (gap - barW) / 2;
+    const x = pad + i * barW;
     const barH = (arr[i] / maxH) * usable;
     const waterH = (level / maxH) * usable;
     if (waterH > barH) {
-      ctx.fillStyle = 'rgba(0,210,255,0.25)';
-      ctx.fillRect(x, bottom - waterH, barW, waterH - barH);
+      const wy = bottom - waterH;
+      const wh = waterH - barH;
+      ctx.fillStyle = 'rgba(0,210,255,0.3)';
+      ctx.fillRect(x, wy, barW, wh);
+      // Dashed lines on the bar/water area
+      ctx.strokeStyle = 'rgba(0,210,255,0.5)'; ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      for (let dy = wy + 4; dy < wy + wh; dy += 6) {
+        ctx.beginPath(); ctx.moveTo(x + 2, dy); ctx.lineTo(x + barW - 2, dy); ctx.stroke();
+      }
+      ctx.setLineDash([]);
     }
   });
 
-  // Water level lines (container)
-  waterLevels.forEach(({ l, r: ri, level }) => {
-    const x1 = pad + l * gap + gap / 2;
-    const x2 = pad + ri * gap + gap / 2;
-    const y = bottom - (level / maxH) * usable;
-    ctx.strokeStyle = 'rgba(0,210,255,0.5)'; ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(0,210,255,0.08)';
-    ctx.fillRect(x1, y, x2 - x1, bottom - y);
-  });
-
-  // Max rectangle highlight
+  // Max rectangle highlight (background)
   if (maxRect) {
     const { left, right, height: rh } = maxRect;
-    const x1 = pad + left * gap + (gap - barW) / 2;
-    const x2 = pad + right * gap + (gap - barW) / 2 + barW;
+    const x1 = pad + left * barW;
+    const x2 = pad + (right + 1) * barW;
     const ry = bottom - (rh / maxH) * usable;
     ctx.fillStyle = 'rgba(255,107,107,0.15)';
     ctx.fillRect(x1, ry, x2 - x1, bottom - ry);
-    ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 1.5;
-    ctx.strokeRect(x1, ry, x2 - x1, bottom - ry);
   }
 
-  // Bars
+  // Bars — touching, no gaps
   arr.forEach((v, i) => {
-    const x = pad + i * gap + (gap - barW) / 2;
+    const x = pad + i * barW;
     const barH = (v / maxH) * usable;
     const isPointer = pointers.includes(i);
     const inStack = stackSet.has(i);
@@ -194,31 +280,25 @@ function drawBars(ctx, w, h, arr, opts = {}) {
     else if (isPointer) color = '#ffd200';
     else if (inStack) color = '#7b2ff7';
 
-    // Bar shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(x + 2, bottom - barH + 2, barW, barH);
-
-    // Bar
     const grad = ctx.createLinearGradient(x, bottom - barH, x, bottom);
-    grad.addColorStop(0, color);
-    grad.addColorStop(1, shadeColor(color, -30));
+    grad.addColorStop(0, color); grad.addColorStop(1, '#1a1a2e');
     ctx.fillStyle = grad;
     ctx.fillRect(x, bottom - barH, barW, barH);
 
-    // Bar border
-    ctx.strokeStyle = isPointer ? '#fff' : 'rgba(255,255,255,0.1)';
+    // Border between bars
+    ctx.strokeStyle = isPointer ? '#fff' : 'rgba(255,255,255,0.08)';
     ctx.lineWidth = isPointer ? 1.5 : 0.5;
     ctx.strokeRect(x, bottom - barH, barW, barH);
 
-    // Index label
+    // Index
     ctx.fillStyle = '#666'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
     ctx.fillText(i, x + barW / 2, bottom + 12);
 
-    // Value label
+    // Value
     ctx.fillStyle = isPointer ? '#ffd200' : '#aaa'; ctx.font = '10px monospace';
     ctx.fillText(v, x + barW / 2, bottom - barH - 5);
 
-    // Pointer arrows
+    // Pointer label
     if (isPointer) {
       const pi = pointers.indexOf(i);
       ctx.fillStyle = '#ffd200'; ctx.font = 'bold 10px sans-serif';
@@ -227,56 +307,65 @@ function drawBars(ctx, w, h, arr, opts = {}) {
     }
   });
   ctx.textAlign = 'start';
-}
 
-function shadeColor(hex, pct) {
-  let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
-  r = Math.max(0, Math.min(255, r + pct)); g = Math.max(0, Math.min(255, g + pct)); b = Math.max(0, Math.min(255, b + pct));
-  return `rgb(${r},${g},${b})`;
+  // Dashed lines on top of bars for max rectangle answer
+  if (maxRect) {
+    const { left, right, height: rh } = maxRect;
+    const x1 = pad + left * barW;
+    const x2 = pad + (right + 1) * barW;
+    const ry = bottom - (rh / maxH) * usable;
+    ctx.strokeStyle = 'rgba(255,107,107,0.7)'; ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    for (let dy = ry + 5; dy < bottom; dy += 7) {
+      ctx.beginPath(); ctx.moveTo(x1 + 2, dy); ctx.lineTo(x2 - 2, dy); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
 }
 
 // ─── Algorithm 1: Container With Most Water ───
 async function runContainer(arr, signal) {
   const canvas = $('c1');
   const { ctx, w, h } = setupCanvas(canvas);
-  let l = 0, r = arr.length - 1, maxArea = 0, bestL = 0, bestR = 0;
+  let l = 0, r = arr.length - 1, maxArea = 0, bestL = 0, bestR = 0, bestLevel = 0;
 
-  log('log1', '<span class="step">Starting two-pointer approach: L=0, R=' + (arr.length - 1) + '</span>');
+  log('log1', '<span class="step">Two-pointer: L=0, R=' + (arr.length - 1) + ' — find widest/tallest container</span>');
 
   while (l < r) {
     signal.throwIfAborted?.();
-    const area = Math.min(arr[l], arr[r]) * (r - l);
-    const waterLevel = Math.min(arr[l], arr[r]);
+    const level = Math.min(arr[l], arr[r]);
+    const area = level * (r - l);
 
-    drawBars(ctx, w, h, arr, {
+    drawContainer(ctx, w, h, arr, {
       pointers: [l, r],
-      waterLevels: [{ l, r, level: waterLevel }]
+      waterLevel: { l, r, level },
+      bestWater: maxArea > 0 ? { l: bestL, r: bestR, level: bestLevel } : null
     });
 
     log('log1', `<span class="step">L=${l} R=${r} → min(${arr[l]},${arr[r]})×${r - l} = <span class="highlight">${area}</span></span>`);
 
     if (area > maxArea) {
-      maxArea = area; bestL = l; bestR = r;
-      log('log1', `<span class="water">★ New max area: ${maxArea}</span>`);
+      maxArea = area; bestL = l; bestR = r; bestLevel = level;
+      log('log1', `<span class="water">★ New max: ${maxArea}</span>`);
       $('res1').textContent = 'Area: ' + maxArea;
     }
 
-    await waitStep(signal);
+    await waitStep(signal, 'container');
 
     if (arr[l] <= arr[r]) {
-      log('log1', `<span class="step">arr[L]=${arr[l]} ≤ arr[R]=${arr[r]} → move L right</span>`);
+      log('log1', `<span class="step">arr[L]≤arr[R] → move L right</span>`);
       l++;
     } else {
-      log('log1', `<span class="step">arr[L]=${arr[l]} > arr[R]=${arr[r]} → move R left</span>`);
+      log('log1', `<span class="step">arr[L]>arr[R] → move R left</span>`);
       r--;
     }
   }
 
-  drawBars(ctx, w, h, arr, {
+  drawContainer(ctx, w, h, arr, {
     pointers: [bestL, bestR],
-    waterLevels: [{ l: bestL, r: bestR, level: Math.min(arr[bestL], arr[bestR]) }]
+    waterLevel: { l: bestL, r: bestR, level: bestLevel }
   });
-  log('log1', `<span class="water">✓ Final answer: ${maxArea} (between indices ${bestL} and ${bestR})</span>`);
+  log('log1', `<span class="water">✓ Answer: ${maxArea} (indices ${bestL}–${bestR})</span>`);
   $('res1').textContent = 'Area: ' + maxArea;
 }
 
@@ -287,7 +376,7 @@ async function runTrapping(arr, signal) {
   let l = 0, r = arr.length - 1, lMax = 0, rMax = 0, water = 0;
   const filled = [];
 
-  log('log2', '<span class="step">Two-pointer approach: L=0, R=' + (arr.length - 1) + ', leftMax=0, rightMax=0</span>');
+  log('log2', '<span class="step">Two-pointer: water trapped on top of each building</span>');
 
   while (l <= r) {
     signal.throwIfAborted?.();
@@ -295,38 +384,35 @@ async function runTrapping(arr, signal) {
     if (arr[l] <= arr[r]) {
       if (arr[l] >= lMax) {
         lMax = arr[l];
-        log('log2', `<span class="step">L=${l}: height ${arr[l]} ≥ leftMax → update leftMax=${lMax}</span>`);
+        log('log2', `<span class="step">L=${l}: h=${arr[l]} ≥ leftMax → leftMax=${lMax}</span>`);
       } else {
-        const trapped = lMax - arr[l];
-        water += trapped;
+        const t = lMax - arr[l];
+        water += t;
         filled.push({ i: l, level: lMax });
-        log('log2', `<span class="push">L=${l}: trap ${lMax}-${arr[l]}=<span class="highlight">${trapped}</span> water (total: ${water})</span>`);
+        log('log2', `<span class="push">L=${l}: trap ${lMax}-${arr[l]}=<span class="highlight">${t}</span> (total: ${water})</span>`);
       }
-
-      drawBars(ctx, w, h, arr, { pointers: [l, r], filledWater: [...filled] });
-      await waitStep(signal);
+      drawTouching(ctx, w, h, arr, { pointers: [l, r], filledWater: [...filled] });
+      await waitStep(signal, 'trapping');
       l++;
     } else {
       if (arr[r] >= rMax) {
         rMax = arr[r];
-        log('log2', `<span class="step">R=${r}: height ${arr[r]} ≥ rightMax → update rightMax=${rMax}</span>`);
+        log('log2', `<span class="step">R=${r}: h=${arr[r]} ≥ rightMax → rightMax=${rMax}</span>`);
       } else {
-        const trapped = rMax - arr[r];
-        water += trapped;
+        const t = rMax - arr[r];
+        water += t;
         filled.push({ i: r, level: rMax });
-        log('log2', `<span class="push">R=${r}: trap ${rMax}-${arr[r]}=<span class="highlight">${trapped}</span> water (total: ${water})</span>`);
+        log('log2', `<span class="push">R=${r}: trap ${rMax}-${arr[r]}=<span class="highlight">${t}</span> (total: ${water})</span>`);
       }
-
-      drawBars(ctx, w, h, arr, { pointers: [l, r], filledWater: [...filled] });
-      await waitStep(signal);
+      drawTouching(ctx, w, h, arr, { pointers: [l, r], filledWater: [...filled] });
+      await waitStep(signal, 'trapping');
       r--;
     }
-
     $('res2').textContent = 'Water: ' + water;
   }
 
-  drawBars(ctx, w, h, arr, { filledWater: filled });
-  log('log2', `<span class="water">✓ Final answer: ${water} units of trapped water</span>`);
+  drawTouching(ctx, w, h, arr, { filledWater: filled });
+  log('log2', `<span class="water">✓ Answer: ${water} units trapped</span>`);
 }
 
 // ─── Algorithm 3: Largest Rectangle in Histogram ───
@@ -336,7 +422,7 @@ async function runHistogram(arr, signal) {
   const stack = [];
   let maxArea = 0, bestL = 0, bestR = 0, bestH = 0;
 
-  log('log3', '<span class="step">Stack-based approach: scanning left to right</span>');
+  log('log3', '<span class="step">Stack: extend each bar left/right to find max rectangle</span>');
 
   for (let i = 0; i <= arr.length; i++) {
     signal.throwIfAborted?.();
@@ -349,45 +435,44 @@ async function runHistogram(arr, signal) {
       const area = height * width;
       const left = stack.length ? stack[stack.length - 1] + 1 : 0;
 
-      log('log3', `<span class="pop">Pop idx ${top}: h=${height} w=${width} → area=<span class="highlight">${area}</span></span>`);
+      log('log3', `<span class="pop">Pop ${top}: extends [${left}–${i - 1}] h=${height} w=${width} → <span class="highlight">${area}</span></span>`);
 
       if (area > maxArea) {
         maxArea = area; bestL = left; bestR = i - 1; bestH = height;
-        log('log3', `<span class="rect">★ New max rectangle: ${maxArea}</span>`);
+        log('log3', `<span class="rect">★ New max: ${maxArea}</span>`);
         $('res3').textContent = 'Area: ' + maxArea;
       }
 
-      const maxRectBars = new Set();
-      for (let j = left; j < i; j++) maxRectBars.add(j);
+      const rBars = new Set();
+      for (let j = left; j < i; j++) rBars.add(j);
 
-      drawBars(ctx, w, h, arr, {
-        pointers: [i < arr.length ? i : -1].filter(x => x >= 0),
+      drawTouching(ctx, w, h, arr, {
+        pointers: i < arr.length ? [i] : [],
         stackSet: new Set(stack),
         maxRect: { left, right: i - 1, height },
-        maxRectBars
+        maxRectBars: rBars
       });
-      await waitStep(signal);
+      await waitStep(signal, 'histogram');
     }
 
     stack.push(i);
     if (i < arr.length) {
-      log('log3', `<span class="push">Push idx ${i} (h=${arr[i]}) → stack=[${stack.join(',')}]</span>`);
+      log('log3', `<span class="push">Push ${i} (h=${arr[i]}) → stack=[${stack.join(',')}]</span>`);
+      drawTouching(ctx, w, h, arr, {
+        pointers: [i],
+        stackSet: new Set(stack)
+      });
+      await waitStep(signal, 'histogram');
     }
-
-    drawBars(ctx, w, h, arr, {
-      pointers: [i < arr.length ? i : -1].filter(x => x >= 0),
-      stackSet: new Set(stack)
-    });
-    if (i < arr.length) await waitStep(signal);
   }
 
   const bestBars = new Set();
   for (let j = bestL; j <= bestR; j++) bestBars.add(j);
-  drawBars(ctx, w, h, arr, {
+  drawTouching(ctx, w, h, arr, {
     maxRect: { left: bestL, right: bestR, height: bestH },
     maxRectBars: bestBars
   });
-  log('log3', `<span class="rect">✓ Final answer: ${maxArea} (indices ${bestL}–${bestR}, height ${bestH})</span>`);
+  log('log3', `<span class="rect">✓ Answer: ${maxArea} (bars ${bestL}–${bestR}, h=${bestH})</span>`);
 }
 
 // ─── Controls ───
@@ -396,16 +481,13 @@ async function runAll() {
   resetAll();
   heights = parseInput();
   if (heights.length < 2) { alert('Need at least 2 values'); return; }
-
   animating = true; stepMode = false;
   abortCtrl = new AbortController();
-  const signal = abortCtrl.signal;
-
   try {
     await Promise.all([
-      runContainer([...heights], signal),
-      runTrapping([...heights], signal),
-      runHistogram([...heights], signal)
+      runContainer([...heights], abortCtrl.signal),
+      runTrapping([...heights], abortCtrl.signal),
+      runHistogram([...heights], abortCtrl.signal)
     ]);
   } catch (e) { if (e !== 'abort') console.error(e); }
   animating = false;
@@ -413,48 +495,51 @@ async function runAll() {
 
 function resetAll() {
   if (abortCtrl) abortCtrl.abort();
-  animating = false; stepMode = false; stepResolve = null;
+  animating = false; stepMode = false; stepResolvers.clear();
   ['log1', 'log2', 'log3'].forEach(id => $(id).innerHTML = '');
   $('res1').textContent = 'Area: 0';
   $('res2').textContent = 'Water: 0';
   $('res3').textContent = 'Area: 0';
-
   heights = parseInput();
   if (heights.length >= 2) {
-    [['c1'], ['c2'], ['c3']].forEach(([cid]) => {
-      const canvas = $(cid);
-      const { ctx, w, h } = setupCanvas(canvas);
-      drawBars(ctx, w, h, heights);
+    const c1 = $('c1'), s1 = setupCanvas(c1);
+    drawContainer(s1.ctx, s1.w, s1.h, heights);
+    ['c2', 'c3'].forEach(id => {
+      const c = $(id), s = setupCanvas(c);
+      drawTouching(s.ctx, s.w, s.h, heights);
     });
   }
 }
 
-// Step mode: run with manual stepping
-$('speed').addEventListener('input', () => {
-  $('speedLabel').textContent = speedEl.value + 'ms';
+function stepOne(algoId) {
+  if (!animating) {
+    startStepMode();
+  } else {
+    doStep(algoId);
+  }
+}
+
+function startStepMode() {
+  heights = parseInput();
+  if (heights.length < 2) { alert('Need at least 2 values'); return; }
+  resetAll();
+  animating = true; stepMode = true;
+  abortCtrl = new AbortController();
+  Promise.all([
+    runContainer([...heights], abortCtrl.signal),
+    runTrapping([...heights], abortCtrl.signal),
+    runHistogram([...heights], abortCtrl.signal)
+  ]).catch(e => { if (e !== 'abort') console.error(e); }).finally(() => animating = false);
+}
+
+$('stepAllBtn').addEventListener('click', () => {
+  if (!animating) {
+    startStepMode();
+  } else {
+    doStep();
+  }
 });
 
-// Handle step button starting animation in step mode
-document.querySelector('.btn-step').addEventListener('click', () => {
-  if (!animating) {
-    heights = parseInput();
-    if (heights.length < 2) { alert('Need at least 2 values'); return; }
-    resetAll();
-    animating = true; stepMode = true;
-    abortCtrl = new AbortController();
-    const signal = abortCtrl.signal;
-    Promise.all([
-      runContainer([...heights], signal),
-      runTrapping([...heights], signal),
-      runHistogram([...heights], signal)
-    ]).catch(e => { if (e !== 'abort') console.error(e); }).finally(() => animating = false);
-  }
-}, { once: false });
-
-// Override the stepAll to not double-fire
-document.querySelector('.btn-step').onclick = null;
-
-// Init
 window.addEventListener('load', resetAll);
 window.addEventListener('resize', () => { if (!animating) resetAll(); });
 </script>
